@@ -3,7 +3,7 @@ bl_info = {
     "author": "MD",
     "version": (1, 0, 0),
     "blender": (4, 0, 0),
-    "location": "Timeline Header > Frame Range Popover",
+    "location": "Timeline / Dope Sheet Header > Frame Range Popover",
     "description": "Store, manage, edit, and restore named frame ranges directly from the Timeline header.",
     "category": "Animation",
 }
@@ -237,12 +237,18 @@ def register():
     bpy.types.Scene.frame_ranges = bpy.props.CollectionProperty(type=FrameRangeItem)
     bpy.types.Scene.frame_range_active_index = bpy.props.IntProperty(default=0)
     
-    # Append to Timeline/DopeSheet Header
-    bpy.types.TIME_HT_header.append(draw_timeline_header_button)
+    # Append to Timeline/DopeSheet Header (Supports Blender 4.x and Blender 5.x)
+    if hasattr(bpy.types, "DOPESHEET_HT_header"):
+        bpy.types.DOPESHEET_HT_header.append(draw_timeline_header_button)
+    elif hasattr(bpy.types, "TIME_HT_header"):
+        bpy.types.TIME_HT_header.append(draw_timeline_header_button)
 
 
 def unregister():
-    bpy.types.TIME_HT_header.remove(draw_timeline_header_button)
+    if hasattr(bpy.types, "DOPESHEET_HT_header"):
+        bpy.types.DOPESHEET_HT_header.remove(draw_timeline_header_button)
+    elif hasattr(bpy.types, "TIME_HT_header"):
+        bpy.types.TIME_HT_header.remove(draw_timeline_header_button)
     
     del bpy.types.Scene.frame_ranges
     del bpy.types.Scene.frame_range_active_index
