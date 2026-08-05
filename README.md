@@ -1,4 +1,4 @@
-# Blender Frame Range Manager Addon
+# Blender Frame Range Manager Addon (v0.1)
 
 A lightweight Blender 4.x / 5.x addon to store, edit, update, and restore named frame range presets directly from the Timeline / Dope Sheet editor header.
 

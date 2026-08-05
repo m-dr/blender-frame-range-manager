@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Frame Range Manager",
     "author": "MD",
-    "version": (1, 0, 0),
+    "version": (0, 1, 0),
     "blender": (4, 0, 0),
     "location": "Timeline / Dope Sheet Header > Frame Range Popover",
     "description": "Store, manage, edit, and restore named frame ranges directly from the Timeline header.",
