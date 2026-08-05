@@ -1,0 +1,255 @@
+bl_info = {
+    "name": "Frame Range Manager",
+    "author": "MD",
+    "version": (1, 0, 0),
+    "blender": (4, 0, 0),
+    "location": "Timeline Header > Frame Range Popover",
+    "description": "Store, manage, edit, and restore named frame ranges directly from the Timeline header.",
+    "category": "Animation",
+}
+
+import bpy
+
+
+class FrameRangeItem(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(
+        name="Name",
+        default="Range",
+        description="Name of this frame range preset"
+    )
+    frame_start: bpy.props.IntProperty(
+        name="Start Frame",
+        default=1,
+        description="Start frame for this range"
+    )
+    frame_end: bpy.props.IntProperty(
+        name="End Frame",
+        default=250,
+        description="End frame for this range"
+    )
+    use_preview_range: bpy.props.BoolProperty(
+        name="Use Preview Range",
+        default=False,
+        description="Whether preview range was active when saved"
+    )
+    frame_preview_start: bpy.props.IntProperty(
+        name="Preview Start Frame",
+        default=1
+    )
+    frame_preview_end: bpy.props.IntProperty(
+        name="Preview End Frame",
+        default=250
+    )
+
+
+class SCENE_OT_frame_range_add(bpy.types.Operator):
+    """Store the current scene frame range as a new named preset"""
+    bl_idname = "scene.frame_range_add"
+    bl_label = "Store Current Frame Range"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    name: bpy.props.StringProperty(
+        name="Preset Name",
+        default=""
+    )
+
+    def execute(self, context):
+        scene = context.scene
+        item = scene.frame_ranges.add()
+        
+        # Default name generation
+        if self.name:
+            item.name = self.name
+        else:
+            item.name = f"Shot {len(scene.frame_ranges):02d}"
+            
+        item.frame_start = scene.frame_start
+        item.frame_end = scene.frame_end
+        item.use_preview_range = scene.use_preview_range
+        item.frame_preview_start = scene.frame_preview_start
+        item.frame_preview_end = scene.frame_preview_end
+        
+        scene.frame_range_active_index = len(scene.frame_ranges) - 1
+        self.report({'INFO'}, f"Saved frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+
+class SCENE_OT_frame_range_apply(bpy.types.Operator):
+    """Apply the selected frame range preset to the current scene"""
+    bl_idname = "scene.frame_range_apply"
+    bl_label = "Apply Frame Range"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: bpy.props.IntProperty(name="Index", default=-1)
+
+    def execute(self, context):
+        scene = context.scene
+        idx = self.index if self.index >= 0 else scene.frame_range_active_index
+        
+        if 0 <= idx < len(scene.frame_ranges):
+            item = scene.frame_ranges[idx]
+            scene.frame_start = item.frame_start
+            scene.frame_end = item.frame_end
+            
+            if item.use_preview_range:
+                scene.use_preview_range = True
+                scene.frame_preview_start = item.frame_preview_start
+                scene.frame_preview_end = item.frame_preview_end
+                
+            scene.frame_range_active_index = idx
+            self.report({'INFO'}, f"Applied frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
+            return {'FINISHED'}
+        else:
+            self.report({'WARNING'}, "Invalid frame range index")
+            return {'CANCELLED'}
+
+
+class SCENE_OT_frame_range_update(bpy.types.Operator):
+    """Overwrite the selected frame range preset with current scene frames"""
+    bl_idname = "scene.frame_range_update"
+    bl_label = "Update Preset from Scene"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: bpy.props.IntProperty(name="Index", default=-1)
+
+    def execute(self, context):
+        scene = context.scene
+        idx = self.index if self.index >= 0 else scene.frame_range_active_index
+        
+        if 0 <= idx < len(scene.frame_ranges):
+            item = scene.frame_ranges[idx]
+            item.frame_start = scene.frame_start
+            item.frame_end = scene.frame_end
+            item.use_preview_range = scene.use_preview_range
+            item.frame_preview_start = scene.frame_preview_start
+            item.frame_preview_end = scene.frame_preview_end
+            self.report({'INFO'}, f"Updated frame range '{item.name}' to ({item.frame_start}-{item.frame_end})")
+            return {'FINISHED'}
+        return {'CANCELLED'}
+
+
+class SCENE_OT_frame_range_remove(bpy.types.Operator):
+    """Remove a stored frame range preset"""
+    bl_idname = "scene.frame_range_remove"
+    bl_label = "Delete Preset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    index: bpy.props.IntProperty(name="Index", default=-1)
+
+    def execute(self, context):
+        scene = context.scene
+        idx = self.index if self.index >= 0 else scene.frame_range_active_index
+        
+        if 0 <= idx < len(scene.frame_ranges):
+            name = scene.frame_ranges[idx].name
+            scene.frame_ranges.remove(idx)
+            if scene.frame_range_active_index >= len(scene.frame_ranges):
+                scene.frame_range_active_index = max(0, len(scene.frame_ranges) - 1)
+            self.report({'INFO'}, f"Removed frame range '{name}'")
+            return {'FINISHED'}
+        return {'CANCELLED'}
+
+
+class TIME_PT_frame_ranges_popover(bpy.types.Panel):
+    """Popover panel for Frame Ranges"""
+    bl_label = "Stored Frame Ranges"
+    bl_space_type = 'DOPESHEET_EDITOR'
+    bl_region_type = 'HEADER'
+    bl_idname = "TIME_PT_frame_ranges_popover"
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        col = layout.column(align=True)
+        
+        top_row = col.row(align=True)
+        top_row.operator("scene.frame_range_add", text="Store Current Range", icon='ADD')
+        
+        col.separator()
+        
+        if not scene.frame_ranges:
+            box = col.box()
+            box.label(text="No stored ranges yet", icon='INFO')
+            return
+
+        box = col.box()
+        for idx, item in enumerate(scene.frame_ranges):
+            is_active = (idx == scene.frame_range_active_index)
+            
+            row = box.row(align=True)
+            
+            # Apply button (Activate)
+            apply_op = row.operator("scene.frame_range_apply", text="", icon='CHECKMARK' if is_active else 'PLAY')
+            apply_op.index = idx
+            
+            # Preset Name (Editable inline)
+            row.prop(item, "name", text="")
+            
+            # Frame Start and End fields (Editable inline)
+            sub = row.row(align=True)
+            sub.prop(item, "frame_start", text="Start")
+            sub.prop(item, "frame_end", text="End")
+            
+            # Update preset from current timeline
+            upd_op = row.operator("scene.frame_range_update", text="", icon='FILE_REFRESH')
+            upd_op.index = idx
+            
+            # Delete button
+            del_op = row.operator("scene.frame_range_remove", text="", icon='X')
+            del_op.index = idx
+
+
+def draw_timeline_header_button(self, context):
+    layout = self.layout
+    scene = context.scene
+    
+    # Active preset label for header button display
+    active_idx = scene.frame_range_active_index
+    label = ""
+    if 0 <= active_idx < len(scene.frame_ranges):
+        label = scene.frame_ranges[active_idx].name
+
+    layout.popover(
+        panel="TIME_PT_frame_ranges_popover",
+        text=label if label else "Ranges",
+        icon='PRESET',
+    )
+
+
+classes = (
+    FrameRangeItem,
+    SCENE_OT_frame_range_add,
+    SCENE_OT_frame_range_apply,
+    SCENE_OT_frame_range_update,
+    SCENE_OT_frame_range_remove,
+    TIME_PT_frame_ranges_popover,
+)
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+        
+    bpy.types.Scene.frame_ranges = bpy.props.CollectionProperty(type=FrameRangeItem)
+    bpy.types.Scene.frame_range_active_index = bpy.props.IntProperty(default=0)
+    
+    # Append to Timeline/DopeSheet Header
+    bpy.types.TIME_HT_header.append(draw_timeline_header_button)
+
+
+def unregister():
+    bpy.types.TIME_HT_header.remove(draw_timeline_header_button)
+    
+    del bpy.types.Scene.frame_ranges
+    del bpy.types.Scene.frame_range_active_index
+    
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+
+
+if __name__ == "__main__":
+    register()
