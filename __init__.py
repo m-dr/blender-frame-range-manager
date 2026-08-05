@@ -208,8 +208,8 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        # Compact width (~70% of previous size, starts reasonably short)
-        layout.ui_units_x = 15
+        # Compact initial width (starts reasonably short)
+        layout.ui_units_x = 14
         
         scene = context.scene
         
@@ -259,9 +259,14 @@ def draw_timeline_header_button(self, context):
     if 0 <= active_idx < len(scene.frame_ranges):
         label = scene.frame_ranges[active_idx].name
 
+    # Truncate header button text so long preset names don't stretch the popover popup container
+    disp_text = ""
+    if label:
+        disp_text = label[:14] + "..." if len(label) > 14 else label
+
     layout.popover(
         panel="TIME_PT_frame_ranges_popover",
-        text=label if label else "Ranges",
+        text=disp_text if disp_text else "Ranges",
         icon='PRESET',
     )
 
@@ -291,16 +296,28 @@ def register():
 
 
 def unregister():
-    if hasattr(bpy.types, "DOPESHEET_HT_header"):
-        bpy.types.DOPESHEET_HT_header.remove(draw_timeline_header_button)
-    elif hasattr(bpy.types, "TIME_HT_header"):
-        bpy.types.TIME_HT_header.remove(draw_timeline_header_button)
+    try:
+        if hasattr(bpy.types, "DOPESHEET_HT_header"):
+            bpy.types.DOPESHEET_HT_header.remove(draw_timeline_header_button)
+    except Exception:
+        pass
+        
+    try:
+        if hasattr(bpy.types, "TIME_HT_header"):
+            bpy.types.TIME_HT_header.remove(draw_timeline_header_button)
+    except Exception:
+        pass
     
-    del bpy.types.Scene.frame_ranges
-    del bpy.types.Scene.frame_range_active_index
+    if hasattr(bpy.types.Scene, "frame_ranges"):
+        del bpy.types.Scene.frame_ranges
+    if hasattr(bpy.types.Scene, "frame_range_active_index"):
+        del bpy.types.Scene.frame_range_active_index
     
     for cls in reversed(classes):
-        bpy.utils.unregister_class(cls)
+        try:
+            bpy.utils.unregister_class(cls)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
