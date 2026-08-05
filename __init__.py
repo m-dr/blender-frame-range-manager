@@ -4,42 +4,79 @@ bl_info = {
     "version": (0, 1, 0),
     "blender": (4, 0, 0),
     "location": "Timeline / Dope Sheet Header > Frame Range Popover",
-    "description": "Store, manage, edit, and restore named frame ranges directly from the Timeline header.",
+    "description": "Store, manage, edit, and restore named frame ranges shared across all scenes in a blendfile.",
     "category": "Animation",
 }
 
 import bpy
 
 
+def sync_frame_ranges(source_scene):
+    """Sync frame ranges from source_scene to all other scenes in the blendfile."""
+    if not source_scene:
+        return
+    for scn in bpy.data.scenes:
+        if scn == source_scene:
+            continue
+        scn.frame_ranges.clear()
+        for item in source_scene.frame_ranges:
+            new_item = scn.frame_ranges.add()
+            # Set values directly without triggering update callback loop
+            new_item.skip_sync = True
+            new_item.name = item.name
+            new_item.frame_start = item.frame_start
+            new_item.frame_end = item.frame_end
+            new_item.use_preview_range = item.use_preview_range
+            new_item.frame_preview_start = item.frame_preview_start
+            new_item.frame_preview_end = item.frame_preview_end
+            new_item.skip_sync = False
+        scn.frame_range_active_index = source_scene.frame_range_active_index
+
+
+def _on_property_update(self, context):
+    """Callback triggered when preset properties (name, start, end) are edited inline."""
+    if getattr(self, "skip_sync", False):
+        return
+    if context and hasattr(context, "scene") and context.scene:
+        sync_frame_ranges(context.scene)
+
+
 class FrameRangeItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(
         name="Name",
         default="Range",
-        description="Name of this frame range preset"
+        description="Name of this frame range preset",
+        update=_on_property_update
     )
     frame_start: bpy.props.IntProperty(
         name="Start Frame",
         default=1,
-        description="Start frame for this range"
+        description="Start frame for this range",
+        update=_on_property_update
     )
     frame_end: bpy.props.IntProperty(
         name="End Frame",
         default=250,
-        description="End frame for this range"
+        description="End frame for this range",
+        update=_on_property_update
     )
     use_preview_range: bpy.props.BoolProperty(
         name="Use Preview Range",
         default=False,
-        description="Whether preview range was active when saved"
+        description="Whether preview range was active when saved",
+        update=_on_property_update
     )
     frame_preview_start: bpy.props.IntProperty(
         name="Preview Start Frame",
-        default=1
+        default=1,
+        update=_on_property_update
     )
     frame_preview_end: bpy.props.IntProperty(
         name="Preview End Frame",
-        default=250
+        default=250,
+        update=_on_property_update
     )
+    skip_sync: bpy.props.BoolProperty(default=False)
 
 
 class SCENE_OT_frame_range_add(bpy.types.Operator):
@@ -57,7 +94,7 @@ class SCENE_OT_frame_range_add(bpy.types.Operator):
         scene = context.scene
         item = scene.frame_ranges.add()
         
-        # Default name generation
+        item.skip_sync = True
         if self.name:
             item.name = self.name
         else:
@@ -68,8 +105,11 @@ class SCENE_OT_frame_range_add(bpy.types.Operator):
         item.use_preview_range = scene.use_preview_range
         item.frame_preview_start = scene.frame_preview_start
         item.frame_preview_end = scene.frame_preview_end
+        item.skip_sync = False
         
         scene.frame_range_active_index = len(scene.frame_ranges) - 1
+        sync_frame_ranges(scene)
+        
         self.report({'INFO'}, f"Saved frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
         return {'FINISHED'}
 
@@ -100,6 +140,8 @@ class SCENE_OT_frame_range_apply(bpy.types.Operator):
                 scene.frame_preview_end = item.frame_preview_end
                 
             scene.frame_range_active_index = idx
+            sync_frame_ranges(scene)
+            
             self.report({'INFO'}, f"Applied frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
             return {'FINISHED'}
         else:
@@ -121,11 +163,15 @@ class SCENE_OT_frame_range_update(bpy.types.Operator):
         
         if 0 <= idx < len(scene.frame_ranges):
             item = scene.frame_ranges[idx]
+            item.skip_sync = True
             item.frame_start = scene.frame_start
             item.frame_end = scene.frame_end
             item.use_preview_range = scene.use_preview_range
             item.frame_preview_start = scene.frame_preview_start
             item.frame_preview_end = scene.frame_preview_end
+            item.skip_sync = False
+            
+            sync_frame_ranges(scene)
             self.report({'INFO'}, f"Updated frame range '{item.name}' to ({item.frame_start}-{item.frame_end})")
             return {'FINISHED'}
         return {'CANCELLED'}
@@ -148,6 +194,7 @@ class SCENE_OT_frame_range_remove(bpy.types.Operator):
             scene.frame_ranges.remove(idx)
             if scene.frame_range_active_index >= len(scene.frame_ranges):
                 scene.frame_range_active_index = max(0, len(scene.frame_ranges) - 1)
+            sync_frame_ranges(scene)
             self.report({'INFO'}, f"Removed frame range '{name}'")
             return {'FINISHED'}
         return {'CANCELLED'}
@@ -162,6 +209,9 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
+        # Expand popover dropdown width to comfortably show long range names
+        layout.ui_units_x = 24
+        
         scene = context.scene
         
         col = layout.column(align=True)
@@ -186,13 +236,15 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
             apply_op = row.operator("scene.frame_range_apply", text="", icon='CHECKMARK' if is_active else 'PLAY')
             apply_op.index = idx
             
-            # Preset Name (Editable inline)
-            row.prop(item, "name", text="")
+            # Preset Name (Editable inline with weight for full width)
+            name_row = row.row(align=True)
+            name_row.prop(item, "name", text="")
             
             # Frame Start and End fields (Editable inline)
             sub = row.row(align=True)
-            sub.prop(item, "frame_start", text="Start")
-            sub.prop(item, "frame_end", text="End")
+            sub.scale_x = 0.8
+            sub.prop(item, "frame_start", text="S")
+            sub.prop(item, "frame_end", text="E")
             
             # Update preset from current timeline
             upd_op = row.operator("scene.frame_range_update", text="", icon='FILE_REFRESH')
