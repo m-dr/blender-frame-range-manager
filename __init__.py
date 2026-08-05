@@ -21,7 +21,6 @@ def sync_frame_ranges(source_scene):
         scn.frame_ranges.clear()
         for item in source_scene.frame_ranges:
             new_item = scn.frame_ranges.add()
-            # Set values directly without triggering update callback loop
             new_item.skip_sync = True
             new_item.name = item.name
             new_item.frame_start = item.frame_start
@@ -209,15 +208,12 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        # Expand popover dropdown width to comfortably show long range names
-        layout.ui_units_x = 24
+        layout.ui_units_x = 22
         
         scene = context.scene
         
         col = layout.column(align=True)
-        
-        top_row = col.row(align=True)
-        top_row.operator("scene.frame_range_add", text="Store Current Range", icon='ADD')
+        col.operator("scene.frame_range_add", text="Store Current Range", icon='ADD')
         
         col.separator()
         
@@ -226,32 +222,29 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
             box.label(text="No stored ranges yet", icon='INFO')
             return
 
-        box = col.box()
         for idx, item in enumerate(scene.frame_ranges):
             is_active = (idx == scene.frame_range_active_index)
+            box = col.box()
             
-            row = box.row(align=True)
-            
-            # Apply button (Activate)
-            apply_op = row.operator("scene.frame_range_apply", text="", icon='CHECKMARK' if is_active else 'PLAY')
+            # Row 1: Apply / Active Toggle + Full Preset Name
+            r1 = box.row(align=True)
+            apply_op = r1.operator(
+                "scene.frame_range_apply",
+                text="",
+                icon='CHECKMARK' if is_active else 'PLAY'
+            )
             apply_op.index = idx
+            r1.prop(item, "name", text="")
             
-            # Preset Name (Editable inline with weight for full width)
-            name_row = row.row(align=True)
-            name_row.prop(item, "name", text="")
+            # Row 2: Frame Start, End, Update, and Delete
+            r2 = box.row(align=True)
+            r2.prop(item, "frame_start", text="Start")
+            r2.prop(item, "frame_end", text="End")
             
-            # Frame Start and End fields (Editable inline)
-            sub = row.row(align=True)
-            sub.scale_x = 0.8
-            sub.prop(item, "frame_start", text="S")
-            sub.prop(item, "frame_end", text="E")
-            
-            # Update preset from current timeline
-            upd_op = row.operator("scene.frame_range_update", text="", icon='FILE_REFRESH')
+            upd_op = r2.operator("scene.frame_range_update", text="Update", icon='FILE_REFRESH')
             upd_op.index = idx
             
-            # Delete button
-            del_op = row.operator("scene.frame_range_remove", text="", icon='X')
+            del_op = r2.operator("scene.frame_range_remove", text="", icon='X')
             del_op.index = idx
 
 
