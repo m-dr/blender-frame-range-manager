@@ -208,7 +208,8 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.ui_units_x = 22
+        # Compact width (~70% of previous size, starts reasonably short)
+        layout.ui_units_x = 15
         
         scene = context.scene
         
@@ -236,12 +237,12 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
             apply_op.index = idx
             r1.prop(item, "name", text="")
             
-            # Row 2: Frame Start, End, Update, and Delete
+            # Row 2: Compact Start, End, Update, and Delete
             r2 = box.row(align=True)
-            r2.prop(item, "frame_start", text="Start")
-            r2.prop(item, "frame_end", text="End")
+            r2.prop(item, "frame_start", text="S")
+            r2.prop(item, "frame_end", text="E")
             
-            upd_op = r2.operator("scene.frame_range_update", text="Update", icon='FILE_REFRESH')
+            upd_op = r2.operator("scene.frame_range_update", text="", icon='FILE_REFRESH')
             upd_op.index = idx
             
             del_op = r2.operator("scene.frame_range_remove", text="", icon='X')
