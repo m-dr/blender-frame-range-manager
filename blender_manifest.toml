@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "frame_range_manager"
-version = "0.1.0"
+version = "0.1.1"
 name = "Frame Range Manager"
 tagline = "Store, manage, edit, and restore named frame ranges shared across all scenes"
 maintainer = "MD <m-dr>"

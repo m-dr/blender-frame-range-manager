@@ -1,9 +1,9 @@
 bl_info = {
     "name": "Frame Range Manager",
     "author": "MD",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (4, 0, 0),
-    "location": "Timeline / Dope Sheet Header > Frame Range Popover",
+    "location": "Timeline / Dope Sheet / Graph / NLA / Sequencer Headers > Frame Range Popover",
     "description": "Store, manage, edit, and restore named frame ranges shared across all scenes in a blendfile.",
     "category": "Animation",
 }
@@ -281,38 +281,53 @@ classes = (
 )
 
 
+# Headers and Playback Control regions where timeline controls are displayed
+HEADER_CLASSES = (
+    "DOPESHEET_HT_header",
+    "DOPESHEET_HT_playback_controls",
+    "GRAPH_HT_header",
+    "GRAPH_HT_playback_controls",
+    "NLA_HT_header",
+    "NLA_HT_playback_controls",
+    "SEQUENCER_HT_header",
+    "SEQUENCER_HT_playback_controls",
+    "CLIP_HT_header",
+    "TIME_HT_header",
+)
+
+
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
-        
+
     bpy.types.Scene.frame_ranges = bpy.props.CollectionProperty(type=FrameRangeItem)
     bpy.types.Scene.frame_range_active_index = bpy.props.IntProperty(default=0)
-    
-    # Append to Timeline/DopeSheet Header (Supports Blender 4.x and Blender 5.x)
-    if hasattr(bpy.types, "DOPESHEET_HT_header"):
-        bpy.types.DOPESHEET_HT_header.append(draw_timeline_header_button)
-    elif hasattr(bpy.types, "TIME_HT_header"):
-        bpy.types.TIME_HT_header.append(draw_timeline_header_button)
+
+    # Append to all timeline, playback, and animation headers
+    for header_name in HEADER_CLASSES:
+        header_cls = getattr(bpy.types, header_name, None)
+        if header_cls and hasattr(header_cls, "append"):
+            try:
+                header_cls.append(draw_timeline_header_button)
+            except Exception:
+                pass
 
 
 def unregister():
-    try:
-        if hasattr(bpy.types, "DOPESHEET_HT_header"):
-            bpy.types.DOPESHEET_HT_header.remove(draw_timeline_header_button)
-    except Exception:
-        pass
-        
-    try:
-        if hasattr(bpy.types, "TIME_HT_header"):
-            bpy.types.TIME_HT_header.remove(draw_timeline_header_button)
-    except Exception:
-        pass
-    
+    # Remove from all timeline, playback, and animation headers
+    for header_name in HEADER_CLASSES:
+        header_cls = getattr(bpy.types, header_name, None)
+        if header_cls and hasattr(header_cls, "remove"):
+            try:
+                header_cls.remove(draw_timeline_header_button)
+            except Exception:
+                pass
+
     if hasattr(bpy.types.Scene, "frame_ranges"):
         del bpy.types.Scene.frame_ranges
     if hasattr(bpy.types.Scene, "frame_range_active_index"):
         del bpy.types.Scene.frame_range_active_index
-    
+
     for cls in reversed(classes):
         try:
             bpy.utils.unregister_class(cls)
