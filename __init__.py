@@ -99,17 +99,23 @@ class SCENE_OT_frame_range_add(bpy.types.Operator):
         else:
             item.name = f"Shot {len(scene.frame_ranges):02d}"
             
-        item.frame_start = scene.frame_start
-        item.frame_end = scene.frame_end
+        if scene.use_preview_range:
+            item.frame_start = scene.frame_preview_start
+            item.frame_end = scene.frame_preview_end
+        else:
+            item.frame_start = scene.frame_start
+            item.frame_end = scene.frame_end
+
         item.use_preview_range = scene.use_preview_range
-        item.frame_preview_start = scene.frame_preview_start
-        item.frame_preview_end = scene.frame_preview_end
+        item.frame_preview_start = item.frame_start
+        item.frame_preview_end = item.frame_end
         item.skip_sync = False
         
         scene.frame_range_active_index = len(scene.frame_ranges) - 1
         sync_frame_ranges(scene)
         
-        self.report({'INFO'}, f"Saved frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
+        mode_info = "preview " if scene.use_preview_range else ""
+        self.report({'INFO'}, f"Saved {mode_info}frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -130,18 +136,20 @@ class SCENE_OT_frame_range_apply(bpy.types.Operator):
         
         if 0 <= idx < len(scene.frame_ranges):
             item = scene.frame_ranges[idx]
-            scene.frame_start = item.frame_start
-            scene.frame_end = item.frame_end
             
-            if item.use_preview_range:
-                scene.use_preview_range = True
-                scene.frame_preview_start = item.frame_preview_start
-                scene.frame_preview_end = item.frame_preview_end
+            if scene.use_preview_range:
+                scene.frame_preview_start = item.frame_start
+                scene.frame_preview_end = item.frame_end
+                mode_info = "preview "
+            else:
+                scene.frame_start = item.frame_start
+                scene.frame_end = item.frame_end
+                mode_info = ""
                 
             scene.frame_range_active_index = idx
             sync_frame_ranges(scene)
             
-            self.report({'INFO'}, f"Applied frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
+            self.report({'INFO'}, f"Applied {mode_info}frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
             return {'FINISHED'}
         else:
             self.report({'WARNING'}, "Invalid frame range index")
@@ -163,15 +171,20 @@ class SCENE_OT_frame_range_update(bpy.types.Operator):
         if 0 <= idx < len(scene.frame_ranges):
             item = scene.frame_ranges[idx]
             item.skip_sync = True
-            item.frame_start = scene.frame_start
-            item.frame_end = scene.frame_end
+            if scene.use_preview_range:
+                item.frame_start = scene.frame_preview_start
+                item.frame_end = scene.frame_preview_end
+            else:
+                item.frame_start = scene.frame_start
+                item.frame_end = scene.frame_end
             item.use_preview_range = scene.use_preview_range
-            item.frame_preview_start = scene.frame_preview_start
-            item.frame_preview_end = scene.frame_preview_end
+            item.frame_preview_start = item.frame_start
+            item.frame_preview_end = item.frame_end
             item.skip_sync = False
             
             sync_frame_ranges(scene)
-            self.report({'INFO'}, f"Updated frame range '{item.name}' to ({item.frame_start}-{item.frame_end})")
+            mode_info = "preview " if scene.use_preview_range else ""
+            self.report({'INFO'}, f"Updated {mode_info}frame range '{item.name}' to ({item.frame_start}-{item.frame_end})")
             return {'FINISHED'}
         return {'CANCELLED'}
 
