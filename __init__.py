@@ -146,17 +146,21 @@ class SCENE_OT_frame_range_add(bpy.types.Operator):
         name="Preset Name",
         default=""
     )
-    overwrite: bpy.props.BoolProperty(
-        name="Overwrite Existing",
-        default=False
-    )
 
     def invoke(self, context, event):
         scene = context.scene
-        existing = {item.name for item in scene.frame_ranges}
-        default_base = f"Shot {len(scene.frame_ranges) + 1:02d}"
-        self.name = make_unique_name(existing, default_base)
+        active_idx = scene.frame_range_active_index
+        # Suggest current active preset name by default, or Shot 01
+        if 0 <= active_idx < len(scene.frame_ranges):
+            self.name = scene.frame_ranges[active_idx].name
+        else:
+            existing = {item.name for item in scene.frame_ranges}
+            self.name = make_unique_name(existing, "Shot 01")
         return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "name")
 
     def execute(self, context):
         scene = context.scene
@@ -170,19 +174,8 @@ class SCENE_OT_frame_range_add(bpy.types.Operator):
         # Check for name collision
         existing_item = scene.frame_ranges.get(target_name)
         if existing_item:
-            if self.overwrite:
-                idx = list(scene.frame_ranges).index(existing_item)
-                existing_item.skip_sync = True
-                set_preset_range(existing_item, start, end, is_preview)
-                existing_item.skip_sync = False
-                scene.frame_range_active_index = idx
-                sync_frame_ranges(scene)
-                mode_info = "preview " if is_preview else ""
-                self.report({'INFO'}, f"Overwrote {mode_info}frame range '{existing_item.name}' ({start}-{end})")
-                return {'FINISHED'}
-            else:
-                # Prompt user for overwrite vs unique name
-                return bpy.ops.scene.frame_range_confirm_overwrite('INVOKE_DEFAULT', name=target_name)
+            # Prompt user for overwrite vs unique name
+            return bpy.ops.scene.frame_range_confirm_overwrite('INVOKE_DEFAULT', name=target_name)
 
         item = scene.frame_ranges.add()
         item.skip_sync = True
@@ -402,21 +395,28 @@ class TIME_PT_frame_ranges_popover(bpy.types.Panel):
 def draw_timeline_header_button(self, context):
     layout = self.layout
     scene = context.scene
-    
-    # Active preset label for header button display
+
     active_idx = scene.frame_range_active_index
     label = ""
+    is_dirty = False
     if 0 <= active_idx < len(scene.frame_ranges):
-        label = scene.frame_ranges[active_idx].name
+        active_item = scene.frame_ranges[active_idx]
+        label = active_item.name
+        start, end, _ = get_current_frame_range(scene)
+        if start != active_item.frame_start or end != active_item.frame_end:
+            is_dirty = True
 
-    # Truncate header button text so long preset names don't stretch the popover popup container
-    disp_text = ""
     if label:
-        disp_text = label[:14] + "..." if len(label) > 14 else label
+        # Prepend asterisk if current timeline frames differ from saved preset values
+        prefix = "* " if is_dirty else ""
+        full_text = f"{prefix}{label}"
+        disp_text = full_text[:14] + "..." if len(full_text) > 14 else full_text
+    else:
+        disp_text = "Ranges"
 
     layout.popover(
         panel="TIME_PT_frame_ranges_popover",
-        text=disp_text if disp_text else "Ranges",
+        text=disp_text,
         icon='PRESET',
     )
 
