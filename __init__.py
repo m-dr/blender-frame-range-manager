@@ -9,6 +9,47 @@ bl_info = {
 }
 
 import bpy
+import re
+
+
+def make_unique_name(existing_names, base_name):
+    """Return base_name if not in existing_names, else base_name.001, .002, etc."""
+    base = base_name.strip() if base_name else "Shot 01"
+    if not base:
+        base = "Shot 01"
+
+    if base not in existing_names:
+        return base
+
+    match = re.match(r"^(.*?)\.(\d{3,})$", base)
+    if match:
+        prefix = match.group(1)
+        num = int(match.group(2))
+    else:
+        prefix = base
+        num = 1
+
+    while True:
+        candidate = f"{prefix}.{num:03d}"
+        if candidate not in existing_names:
+            return candidate
+        num += 1
+
+
+def get_current_frame_range(scene):
+    """Return (start, end, is_preview) for the active scene playback mode."""
+    if scene.use_preview_range:
+        return scene.frame_preview_start, scene.frame_preview_end, True
+    return scene.frame_start, scene.frame_end, False
+
+
+def set_preset_range(item, start, end, is_preview):
+    """Set range values on a preset item consistently."""
+    item.frame_start = start
+    item.frame_end = end
+    item.use_preview_range = is_preview
+    item.frame_preview_start = start
+    item.frame_preview_end = end
 
 
 def sync_frame_ranges(source_scene):
@@ -32,8 +73,25 @@ def sync_frame_ranges(source_scene):
         scn.frame_range_active_index = source_scene.frame_range_active_index
 
 
+def _on_name_update(self, context):
+    """Callback when preset name is edited inline: enforce unique name across scene."""
+    if getattr(self, "skip_sync", False):
+        return
+    if context and hasattr(context, "scene") and context.scene:
+        scene = context.scene
+        other_names = {p.name for p in scene.frame_ranges if p != self}
+        clean_name = self.name.strip()
+        if not clean_name:
+            clean_name = "Shot"
+        if clean_name in other_names:
+            self.skip_sync = True
+            self.name = make_unique_name(other_names, clean_name)
+            self.skip_sync = False
+        sync_frame_ranges(scene)
+
+
 def _on_property_update(self, context):
-    """Callback triggered when preset properties (name, start, end) are edited inline."""
+    """Callback triggered when preset properties (start, end) are edited inline."""
     if getattr(self, "skip_sync", False):
         return
     if context and hasattr(context, "scene") and context.scene:
@@ -45,7 +103,7 @@ class FrameRangeItem(bpy.types.PropertyGroup):
         name="Name",
         default="Range",
         description="Name of this frame range preset",
-        update=_on_property_update
+        update=_on_name_update
     )
     frame_start: bpy.props.IntProperty(
         name="Start Frame",
@@ -88,38 +146,123 @@ class SCENE_OT_frame_range_add(bpy.types.Operator):
         name="Preset Name",
         default=""
     )
+    overwrite: bpy.props.BoolProperty(
+        name="Overwrite Existing",
+        default=False
+    )
+
+    def invoke(self, context, event):
+        scene = context.scene
+        existing = {item.name for item in scene.frame_ranges}
+        default_base = f"Shot {len(scene.frame_ranges) + 1:02d}"
+        self.name = make_unique_name(existing, default_base)
+        return context.window_manager.invoke_props_dialog(self)
 
     def execute(self, context):
         scene = context.scene
-        item = scene.frame_ranges.add()
-        
-        item.skip_sync = True
-        if self.name:
-            item.name = self.name
-        else:
-            item.name = f"Shot {len(scene.frame_ranges):02d}"
-            
-        if scene.use_preview_range:
-            item.frame_start = scene.frame_preview_start
-            item.frame_end = scene.frame_preview_end
-        else:
-            item.frame_start = scene.frame_start
-            item.frame_end = scene.frame_end
+        target_name = self.name.strip()
+        existing_names = {item.name for item in scene.frame_ranges}
+        if not target_name:
+            target_name = make_unique_name(existing_names, "Shot 01")
 
-        item.use_preview_range = scene.use_preview_range
-        item.frame_preview_start = item.frame_start
-        item.frame_preview_end = item.frame_end
+        start, end, is_preview = get_current_frame_range(scene)
+
+        # Check for name collision
+        existing_item = scene.frame_ranges.get(target_name)
+        if existing_item:
+            if self.overwrite:
+                idx = list(scene.frame_ranges).index(existing_item)
+                existing_item.skip_sync = True
+                set_preset_range(existing_item, start, end, is_preview)
+                existing_item.skip_sync = False
+                scene.frame_range_active_index = idx
+                sync_frame_ranges(scene)
+                mode_info = "preview " if is_preview else ""
+                self.report({'INFO'}, f"Overwrote {mode_info}frame range '{existing_item.name}' ({start}-{end})")
+                return {'FINISHED'}
+            else:
+                # Prompt user for overwrite vs unique name
+                return bpy.ops.scene.frame_range_confirm_overwrite('INVOKE_DEFAULT', name=target_name)
+
+        item = scene.frame_ranges.add()
+        item.skip_sync = True
+        item.name = target_name
+        set_preset_range(item, start, end, is_preview)
         item.skip_sync = False
-        
+
         scene.frame_range_active_index = len(scene.frame_ranges) - 1
         sync_frame_ranges(scene)
-        
-        mode_info = "preview " if scene.use_preview_range else ""
-        self.report({'INFO'}, f"Saved {mode_info}frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
+
+        mode_info = "preview " if is_preview else ""
+        self.report({'INFO'}, f"Saved {mode_info}frame range '{item.name}' ({start}-{end})")
         return {'FINISHED'}
 
+
+class SCENE_OT_frame_range_confirm_overwrite(bpy.types.Operator):
+    """Confirm whether to overwrite an existing preset or save with a unique name"""
+    bl_idname = "scene.frame_range_confirm_overwrite"
+    bl_label = "Preset Already Exists"
+    bl_options = {'REGISTER', 'UNDO', 'INTERNAL'}
+
+    name: bpy.props.StringProperty(name="Name")
+    action: bpy.props.EnumProperty(
+        name="Action",
+        items=[
+            ('OVERWRITE', "Overwrite", "Overwrite the existing preset with current range"),
+            ('UNIQUE', "Save as New", "Keep existing and save with a unique name (.001)"),
+        ],
+        default='OVERWRITE'
+    )
+
     def invoke(self, context, event):
-        return context.window_manager.invoke_props_dialog(self)
+        return context.window_manager.invoke_props_dialog(self, width=320)
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        existing = {item.name for item in scene.frame_ranges}
+        unique_name = make_unique_name(existing, self.name)
+
+        col = layout.column(align=True)
+        col.label(text=f"Preset '{self.name}' already exists.", icon='QUESTION')
+        col.separator()
+        col.prop(self, "action", expand=True)
+
+        if self.action == 'UNIQUE':
+            col.separator()
+            col.label(text=f"Will be saved as: '{unique_name}'", icon='INFO')
+
+    def execute(self, context):
+        scene = context.scene
+        start, end, is_preview = get_current_frame_range(scene)
+        mode_info = "preview " if is_preview else ""
+
+        if self.action == 'OVERWRITE':
+            existing_item = scene.frame_ranges.get(self.name)
+            if existing_item:
+                idx = list(scene.frame_ranges).index(existing_item)
+                existing_item.skip_sync = True
+                set_preset_range(existing_item, start, end, is_preview)
+                existing_item.skip_sync = False
+                scene.frame_range_active_index = idx
+                sync_frame_ranges(scene)
+                self.report({'INFO'}, f"Overwrote {mode_info}frame range '{self.name}' ({start}-{end})")
+                return {'FINISHED'}
+            target_name = self.name
+        else:
+            existing = {item.name for item in scene.frame_ranges}
+            target_name = make_unique_name(existing, self.name)
+
+        item = scene.frame_ranges.add()
+        item.skip_sync = True
+        item.name = target_name
+        set_preset_range(item, start, end, is_preview)
+        item.skip_sync = False
+
+        scene.frame_range_active_index = len(scene.frame_ranges) - 1
+        sync_frame_ranges(scene)
+        self.report({'INFO'}, f"Saved {mode_info}frame range '{item.name}' ({start}-{end})")
+        return {'FINISHED'}
 
 
 class SCENE_OT_frame_range_apply(bpy.types.Operator):
@@ -133,10 +276,10 @@ class SCENE_OT_frame_range_apply(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         idx = self.index if self.index >= 0 else scene.frame_range_active_index
-        
+
         if 0 <= idx < len(scene.frame_ranges):
             item = scene.frame_ranges[idx]
-            
+
             if scene.use_preview_range:
                 scene.frame_preview_start = item.frame_start
                 scene.frame_preview_end = item.frame_end
@@ -145,10 +288,10 @@ class SCENE_OT_frame_range_apply(bpy.types.Operator):
                 scene.frame_start = item.frame_start
                 scene.frame_end = item.frame_end
                 mode_info = ""
-                
+
             scene.frame_range_active_index = idx
             sync_frame_ranges(scene)
-            
+
             self.report({'INFO'}, f"Applied {mode_info}frame range '{item.name}' ({item.frame_start}-{item.frame_end})")
             return {'FINISHED'}
         else:
@@ -167,24 +310,18 @@ class SCENE_OT_frame_range_update(bpy.types.Operator):
     def execute(self, context):
         scene = context.scene
         idx = self.index if self.index >= 0 else scene.frame_range_active_index
-        
+
         if 0 <= idx < len(scene.frame_ranges):
             item = scene.frame_ranges[idx]
+            start, end, is_preview = get_current_frame_range(scene)
+
             item.skip_sync = True
-            if scene.use_preview_range:
-                item.frame_start = scene.frame_preview_start
-                item.frame_end = scene.frame_preview_end
-            else:
-                item.frame_start = scene.frame_start
-                item.frame_end = scene.frame_end
-            item.use_preview_range = scene.use_preview_range
-            item.frame_preview_start = item.frame_start
-            item.frame_preview_end = item.frame_end
+            set_preset_range(item, start, end, is_preview)
             item.skip_sync = False
-            
+
             sync_frame_ranges(scene)
-            mode_info = "preview " if scene.use_preview_range else ""
-            self.report({'INFO'}, f"Updated {mode_info}frame range '{item.name}' to ({item.frame_start}-{item.frame_end})")
+            mode_info = "preview " if is_preview else ""
+            self.report({'INFO'}, f"Updated {mode_info}frame range '{item.name}' to ({start}-{end})")
             return {'FINISHED'}
         return {'CANCELLED'}
 
@@ -287,6 +424,7 @@ def draw_timeline_header_button(self, context):
 classes = (
     FrameRangeItem,
     SCENE_OT_frame_range_add,
+    SCENE_OT_frame_range_confirm_overwrite,
     SCENE_OT_frame_range_apply,
     SCENE_OT_frame_range_update,
     SCENE_OT_frame_range_remove,
