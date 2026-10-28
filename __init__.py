@@ -1,5 +1,5 @@
 bl_info = {
-    "name": "Frame Range Manager",
+    "name": "Frame Range Manager (DEV)",
     "author": "MD",
     "version": (0, 1, 1),
     "blender": (4, 0, 0),
