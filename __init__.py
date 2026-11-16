@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Frame Range Manager (DEV)",
     "author": "MD",
-    "version": (0, 1, 1),
+    "version": (0, 1, 2),
     "blender": (4, 0, 0),
     "location": "Timeline / Dope Sheet / Graph / NLA / Sequencer Headers > Frame Range Popover",
     "description": "Store, manage, edit, and restore named frame ranges shared across all scenes in a blendfile.",
